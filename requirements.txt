@@ -1,0 +1,7 @@
+# Core runtime dependencies for Kallie
+pygame>=2.5
+requests>=2.31
+# Google GenAI Python client used by nano_banana.py
+# The import path in the project is `from google import genai` and `from google.genai import types`
+# which corresponds to the package name below.
+google-genai>=0.3.0
