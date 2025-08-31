@@ -109,10 +109,15 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
     )
 
     user_prompt = (
-        "Randomly choose one style from: "
-        f"[{candidate_styles}] and one world_settings from: [{candidate_worlds}]. "
-        "Invent a vivid one-sentence scenery description that fits both. "
-        'Output strictly: {"style": "...", "scenery": "...", "world_settings": "..."}.'
+        f"""Randomly choose one style from: 
+        [{candidate_styles}] and one world_settings from: [{candidate_worlds}]. """ +
+        """Invent a vivid one-sentence scenery description that fits both. 
+        Output strictly: \"style\": \"{style_prompt}\", 
+\"scenery\": \"{scenery}\", 
+\"world_setting\": \"{world_settings}\",
+\"level_of_detail\": \"{level_of_detail}\", 
+\"crowd_density\": \"{crowd_density}\", 
+\"color_palette\": \"{color_palette}\""""
     )
 
     headers = {

@@ -9,7 +9,15 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 class ImageGenerator:
 
-    MAIN_PROMPT = """Embed this face in a crowd of people in a way how Wally game works set by coordinates: "x\": \"{x_cord}\", \"y\": \"{y_cord}\" it should be well embedded and  blended into the image, even hard to find; Use the following style prompt: \"style\": \"{style_prompt}\", \"scenery\": \"{scenery}\", \"world_setting\": {world_settings}"""
+    MAIN_PROMPT = """Embed the provided face image into a highly detailed, bustling crowd scene, in the style of 'Where's Wally' (or 'Where's Waldo'), at coordinates X:{x_cord}, Y:{y_cord}. The embedded face should be a natural and extremely well-blended part of the generated image, making it genuinely hard to find, consistent with the 'Wally game' aesthetic.
+    Use the following artistic guidelines:
+\"style\": \"{style_prompt}\", 
+\"scenery\": \"{scenery}\", 
+\"world_setting\": \"{world_settings}\",
+\"level_of_detail\": \"{level_of_detail}\", 
+\"crowd_density\": \"{crowd_density}\", 
+\"color_palette\": \"{color_palette}\"
+"""
 
     HARDER_LEVEL = """Rework the given image keep parameters for:
 style: {style_prompt}
@@ -66,7 +74,7 @@ Add less details, make bigger provided face, better make sure it is well embedde
         )
         self._current_level_image = self._generate(
             prompt=prompt,
-            custom_images=[self.custom_image] if self.custom_image else None,
+            custom_images=[self.custom_image] if self.custom_image else [],
         )
 
     def make_harder(self, x_cord_new, y_cord_new):
@@ -122,11 +130,10 @@ Add less details, make bigger provided face, better make sure it is well embedde
         if custom_images:
             for image in custom_images:
                 with open(image, "rb") as image_file:
-                    base64_image = base64.b64encode(image_file.read())
-                    parts.append(
+                    parts.insert(0,
                         types.Part.from_bytes(
                             mime_type="image/jpeg",
-                            data=base64_image,
+                            data=image_file.read(),
                         ),
                     )
         model = "gemini-2.5-flash-image-preview"

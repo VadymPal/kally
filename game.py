@@ -159,6 +159,8 @@ class Game:
 
         info_lines = [
             "1) Optionally select a face/image to embed (sent to nano banana).",
+            "   - On macOS, a text prompt will appear to paste a path (no system dialog).",
+            "   - Or set CUSTOM_IMAGE_PATH env var before running.",
             "2) Start Game to generate a scene and hide the face.",
             "3) Click within ±25px of the hidden coords to win.",
         ]
@@ -225,7 +227,18 @@ class Game:
         )
 
     def pick_file_dialog(self) -> Optional[str]:
-        # Pygame alone doesn't have a file dialog; use Tkinter if available, otherwise prompt via console.
+        # Avoid Tk on macOS due to known crash with SDL/Pygame (NSInvalidArgumentException macOSVersion).
+        # Provide alternatives: environment variable, simple Pygame text input, or console input as last resort.
+        # 1) If env CUSTOM_IMAGE_PATH is set and exists, use it.
+        env_path = os.getenv("CUSTOM_IMAGE_PATH")
+        if env_path and os.path.exists(env_path):
+            return env_path
+
+        # 2) On macOS, do NOT import tkinter. Offer a simple inline text input overlay in the Pygame window.
+        if sys.platform == "darwin":
+            return self._prompt_path_in_pygame()
+
+        # 3) On other platforms, try tkinter; if it fails, fall back to Pygame/console.
         try:
             import tkinter as tk
             from tkinter import filedialog
@@ -240,16 +253,57 @@ class Game:
                 ],
             )
             root.destroy()
-            return path or None
+            if path:
+                return path
         except Exception:
-            print(
-                "Could not open a GUI file dialog. Enter a path here (or leave empty to cancel): "
-            )
-            try:
-                p = input().strip()
-                return p or None
-            except Exception:
-                return None
+            pass
+
+        # 4) Fallback to a Pygame/console prompt.
+        return self._prompt_path_in_pygame()
+
+    def _prompt_path_in_pygame(self) -> Optional[str]:
+        typing = True
+        user_text = ""
+        info1 = "Type or paste full path to an image and press Enter. Esc to cancel."
+        info2 = "(Tip: You can also set CUSTOM_IMAGE_PATH env var before launching)"
+        while typing:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return None
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        return None
+                    elif event.key == pygame.K_RETURN:
+                        path = user_text.strip()
+                        if path and os.path.exists(path):
+                            return path
+                        else:
+                            # show invalid message briefly
+                            pass
+                    elif event.key == pygame.K_BACKSPACE:
+                        user_text = user_text[:-1]
+                    else:
+                        if event.unicode:
+                            user_text += event.unicode
+
+            # draw overlay prompt
+            self.screen.fill(BG_COLOR)
+            title = self.big_font.render("Enter Image Path", True, TEXT_COLOR)
+            self.screen.blit(title, (50, 10))
+            l1 = self.font.render(info1, True, TEXT_COLOR)
+            l2 = self.font.render(info2, True, TEXT_COLOR)
+            self.screen.blit(l1, (50, 70))
+            self.screen.blit(l2, (50, 98))
+
+            # input box
+            box = pygame.Rect(50, 140, SCREEN_W - 100, 40)
+            pygame.draw.rect(self.screen, (70, 70, 80), box, border_radius=6)
+            txt_surface = self.font.render(user_text or "", True, (0, 0, 0))
+            self.screen.blit(txt_surface, (box.x + 8, box.y + 10))
+
+            pygame.display.flip()
+            self.clock.tick(60)
+        return None
 
     def new_round(self):
         self.round_seed = random.randint(0, 2**31 - 1)
