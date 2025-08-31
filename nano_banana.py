@@ -1,4 +1,3 @@
-import base64
 import mimetypes
 import os
 from google import genai
@@ -9,30 +8,41 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 class ImageGenerator:
 
-    MAIN_PROMPT = """Embed the provided face image into a highly detailed, bustling crowd scene, in the style of 'Where's Wally' (or 'Where's Waldo'), at coordinates X:{x_cord}, Y:{y_cord}. The embedded face should be a natural and extremely well-blended part of the generated image, making it genuinely hard to find, consistent with the 'Wally game' aesthetic.
+    MAIN_PROMPT = """Seamlessly embed a subtly integrated figure, whose face is derived from the provided image, into a highly detailed, bustling crowd scene.
+    Canvas size MUST be exactly 768x1344 pixels (width x height). Place the embedded face at pixel coordinates x:{x_cord}, y:{y_cord} on this canvas, STRICTLY AT THIS COORDINATES OR IT AT LEAST HAVE TO OVERLAP WITH THOSE COORDINATES. Coordinates are integers in pixel units with origin at the top-left (0,0), x to the right, y down.
+    The embedding should be so well-blended that the custom part is not easily detectable as an addition, but rather an organic part of the generated image's composition and style.
+    
     Use the following artistic guidelines:
-\"style\": \"{style_prompt}\", 
-\"scenery\": \"{scenery}\", 
-\"world_setting\": \"{world_settings}\",
-\"level_of_detail\": \"{level_of_detail}\", 
-\"crowd_density\": \"{crowd_density}\", 
-\"color_palette\": \"{color_palette}\"
-"""
+    \"style\": \"{style_prompt}\", 
+    \"scenery\": \"{scenery}\", 
+    \"world_setting\": \"{world_settings}\",
+    \"level_of_detail\": \"{level_of_detail}\", 
+    \"crowd_density\": \"{crowd_density}\", 
+    \"color_palette\": \"{color_palette}\"
+    """
 
-    HARDER_LEVEL = """Rework the given image keep parameters for:
+    HARDER_LEVEL = """Rework the given image. Keep the following parameters:
 style: {style_prompt}
 scenery: {scenery}
 world_settings: {world_settings}
-Remove old face at coordinates: "x\": \"{x_cord}\", \"y\": \"{y_cord}\" and put it in new coordinates: "x\": \"{x_cord_new}\", \"y\": \"{y_cord_new}\"
-Add more details, hide provided face better make sure it is well embedded and blended into the image, even hard to find.
+level_of_detail: {level_of_detail}
+crowd_density: {crowd_density}
+color_palette: {color_palette}
+Canvas size MUST remain exactly 768x1344 pixels (width x height). Coordinates are pixel-based with origin at top-left.
+Remove the old embedded face at pixel coordinates x:{x_cord}, y:{y_cord} and place it at new pixel coordinates x={x_cord_new}, y={y_cord_new}.
+Add more details and hide the provided face better. Ensure it is well embedded and blended into the image, even harder to find.
 """
 
-    EASIER_LEVEL = """Rework the given image keep parameters for:
+    EASIER_LEVEL = """Rework the given image. Keep the following parameters:
 style: {style_prompt}
 scenery: {scenery}
 world_settings: {world_settings}
-Remove old face at coordinates: "x\": \"{x_cord}\", \"y\": \"{y_cord}\" and put it in new coordinates: "x\": \"{x_cord_new}\", \"y\": \"{y_cord_new}\"
-Add less details, make bigger provided face, better make sure it is well embedded and blended into the image, even easier to find but not too easy.
+level_of_detail: {level_of_detail}
+crowd_density: {crowd_density}
+color_palette: {color_palette}
+Canvas size MUST remain exactly 768x1344 pixels (width x height). Coordinates are pixel-based with origin at top-left.
+Remove the old embedded face at pixel coordinates x={x_cord}, y={y_cord} and place it at new pixel coordinates x={x_cord_new}, y={y_cord_new}.
+Add fewer details, make the provided face slightly larger while ensuring it is well embedded and blended into the image; it should be easier to find but not trivial.
 """
 
     def __init__(
@@ -42,6 +52,9 @@ Add less details, make bigger provided face, better make sure it is well embedde
         style: str = "Default Find Wally + Disney style",
         scenery: str = "Default Find Wally + Disney style",
         world_settings: str = "Default Find Wally + Disney style",
+        level_of_detail: str = "medium",
+        crowd_density: str = "high",
+        color_palette: str = "vibrant",
         custom_image: str = None,
     ):
         self.client = genai.Client(api_key=GOOGLE_API_KEY)
@@ -50,6 +63,9 @@ Add less details, make bigger provided face, better make sure it is well embedde
         self.style = style
         self.scenery = scenery
         self.world_settings = world_settings
+        self.level_of_detail = level_of_detail
+        self.crowd_density = crowd_density
+        self.color_palette = color_palette
         self.custom_image = custom_image
         self.x_cord = x_cord
         self.y_cord = y_cords
@@ -71,6 +87,9 @@ Add less details, make bigger provided face, better make sure it is well embedde
             style_prompt=self.style,
             scenery=self.scenery,
             world_settings=self.world_settings,
+            level_of_detail=self.level_of_detail,
+            crowd_density=self.crowd_density,
+            color_palette=self.color_palette,
         )
         self._current_level_image = self._generate(
             prompt=prompt,
@@ -86,6 +105,9 @@ Add less details, make bigger provided face, better make sure it is well embedde
             style_prompt=self.style,
             scenery=self.scenery,
             world_settings=self.world_settings,
+            level_of_detail=self.level_of_detail,
+            crowd_density=self.crowd_density,
+            color_palette=self.color_palette,
         )
         images = (
             [self._current_level_image] + [self.custom_image]
@@ -105,6 +127,9 @@ Add less details, make bigger provided face, better make sure it is well embedde
             style_prompt=self.style,
             scenery=self.scenery,
             world_settings=self.world_settings,
+            level_of_detail=self.level_of_detail,
+            crowd_density=self.crowd_density,
+            color_palette=self.color_palette,
         )
         images = (
             [self._current_level_image] + [self.custom_image]

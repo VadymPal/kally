@@ -6,7 +6,10 @@ Output JSON shape:
 {
   "style": "<style description like 'cartoon', 'anime', 'sci‑fi'...>",
   "scenery": "<prompt describing the scenery>",
-  "world_settings": "<setting like 'Ancient Egypt', 'Mesopotamian', ...>"
+  "world_setting": "<setting like 'Ancient Egypt', 'Mesopotamian', ...>",
+  "level_of_detail": "<low|medium|high or a short phrase>",
+  "crowd_density": "<sparse|medium|dense>",
+  "color_palette": "<vibrant|muted|pastel|monochrome or similar>"
 }
 
 Usage:
@@ -96,9 +99,9 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
     # Compose a compact but strict instruction to ensure JSON-only output.
     system_prompt = (
         "You are a generator for image prompts. Return only a compact JSON object with keys "
-        "style, scenery, world_settings. No backticks, no prefix text. Styles must be simple labels "
-        "like 'cartoon', 'anime', 'sci-fi', 'fantasy', etc. Scenery should be a vivid one-sentence "
-        "description. world_settings should be a concise era/civilization or setting like 'Ancient Egypt' "
+        "style, scenery, world_setting, level_of_detail, crowd_density, color_palette. No backticks, no prefix text. "
+        "Styles must be simple labels like 'cartoon', 'anime', 'sci-fi', 'fantasy', etc. Scenery should be a vivid "
+        "one-sentence description. world_setting should be a concise era/civilization or setting like 'Ancient Egypt' "
         "or 'Mesopotamian'."
     )
 
@@ -134,7 +137,7 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.9,
+        "temperature": 1.0,
         "response_format": {"type": "json_object"},
     }
     if seed is not None:
@@ -164,9 +167,14 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
             content = "\n".join(lines).strip()
         parsed = json.loads(content)
         # Validate keys exist and are strings
-        if not all(k in parsed for k in ("style", "scenery", "world_settings")):
+        # Normalize potential key variants and validate
+        # Accept either world_setting or world_settings from the model and normalize to world_setting
+        if "world_settings" in parsed and "world_setting" not in parsed:
+            parsed["world_setting"] = parsed.pop("world_settings")
+        required_keys = ("style", "scenery", "world_setting", "level_of_detail", "crowd_density", "color_palette")
+        if not all(k in parsed for k in required_keys):
             return None
-        for k in ("style", "scenery", "world_settings"):
+        for k in required_keys:
             if not isinstance(parsed[k], str):
                 return None
         return parsed
@@ -186,12 +194,12 @@ def generate_prompt(
     - seed: Optional integer seed for determinism (passed to API when supported).
 
     Returns:
-    - Dict with keys: style, scenery, world_settings.
+    - Dict with keys: style, scenery, world_setting, level_of_detail, crowd_density, color_palette.
 
     Example:
         from generate_prompt_json import generate_prompt
         data = generate_prompt(seed=42)
-        # data -> {"style": "...", "scenery": "...", "world_settings": "..."}
+        # data -> {"style": "...", "scenery": "...", "world_setting": "...", "level_of_detail": "...", "crowd_density": "...", "color_palette": "..."}
     """
     if model is None:
         model = os.getenv("OPENROUTER_MODEL", "openrouter/auto")

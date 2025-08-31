@@ -16,7 +16,8 @@ try:
 except Exception:
     ImageGenerator = None  # type: ignore
 
-SCREEN_W, SCREEN_H = 1080, 720
+SCREEN_W, SCREEN_H = 1080, 720  # default menu/loading size; play mode resizes to image size
+BASE_W, BASE_H = 768, 1344  # base coordinate system for prompts/mapping
 TARGET_TOLERANCE_INITIAL = 25
 BG_COLOR = (15, 15, 18)
 TEXT_COLOR = (235, 235, 235)
@@ -31,9 +32,9 @@ def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def gen_coords() -> Tuple[int, int]:
-    # Inclusive bounds within the 1080x720 canvas
-    return random.randint(0, SCREEN_W - 1), random.randint(0, SCREEN_H - 1)
+def gen_coords(w: int, h: int) -> Tuple[int, int]:
+    # Inclusive bounds within the provided canvas
+    return random.randint(0, max(1, w) - 1), random.randint(0, max(1, h) - 1)
 
 
 def try_generate_prompt(seed: Optional[int] = None) -> Optional[dict]:
@@ -53,7 +54,14 @@ def try_generate_image(
     x, y = coords
     style = prompt_json.get("style") if prompt_json else None
     scenery = prompt_json.get("scenery") if prompt_json else None
-    world_settings = prompt_json.get("world_settings") if prompt_json else None
+    # Accept both legacy 'world_settings' and new 'world_setting'
+    world_settings = None
+    if prompt_json:
+        world_settings = (
+            prompt_json.get("world_setting")
+            if "world_setting" in prompt_json
+            else prompt_json.get("world_settings")
+        )
 
     # Provide sane defaults if prompt generation failed
     style = style or "cartoon"
@@ -67,6 +75,9 @@ def try_generate_image(
             style=style,
             scenery=scenery,
             world_settings=world_settings,
+            level_of_detail=(prompt_json.get("level_of_detail") if prompt_json else None) or "medium",
+            crowd_density=(prompt_json.get("crowd_density") if prompt_json else None) or "high",
+            color_palette=(prompt_json.get("color_palette") if prompt_json else None) or "vibrant",
             custom_image=custom_image,
         )
         ig.generate_initial()
@@ -93,19 +104,26 @@ def try_generate_image(
 
 
 def load_image_surface(path: Optional[str]) -> pygame.Surface:
+    # Load image; if size differs from BASE_WxBASE_H, rescale to ensure 1:1 coordinate mapping.
+    def _load(p: str) -> pygame.Surface:
+        img = pygame.image.load(p)
+        surf = img.convert_alpha() if img.get_alpha() else img.convert()
+        iw, ih = surf.get_width(), surf.get_height()
+        if (iw, ih) != (BASE_W, BASE_H):
+            surf = pygame.transform.smoothscale(surf, (BASE_W, BASE_H))
+        return surf
+
     if path and os.path.exists(path):
         try:
-            img = pygame.image.load(path)
-            return pygame.transform.smoothscale(img, (SCREEN_W, SCREEN_H))
+            return _load(path)
         except Exception:
             pass
     # Fallback to bundled image
     try:
-        img = pygame.image.load(ASSET_FALLBACK)
-        return pygame.transform.smoothscale(img, (SCREEN_W, SCREEN_H))
+        return _load(ASSET_FALLBACK)
     except Exception:
-        # Create blank surface if even fallback fails
-        surf = pygame.Surface((SCREEN_W, SCREEN_H))
+        # Create small blank surface if even fallback fails
+        surf = pygame.Surface((BASE_W, BASE_H))
         surf.fill((30, 30, 30))
         return surf
 
@@ -134,6 +152,9 @@ class Game:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont(None, 28)
         self.big_font = pygame.font.SysFont(None, 48)
+        self.w, self.h = SCREEN_W, SCREEN_H  # current window size; updates to image size in play
+        self.just_loaded_at: Optional[int] = None  # ticks when image loaded in play
+        self.debug_show_target: bool = os.getenv("DEBUG_SHOW_TARGET", "").lower() in ("1", "true", "yes", "on")
 
         # UI state
         self.state = "menu"  # menu -> loading -> play -> result
@@ -188,10 +209,17 @@ class Game:
     def draw_play(self):
         if self.image_surface is None:
             self.image_surface = load_image_surface(self.image_path)
+            # If image size differs from window, resize window once
+            iw, ih = self.image_surface.get_width(), self.image_surface.get_height()
+            if (iw, ih) != (self.w, self.h):
+                self.w, self.h = iw, ih
+                self.screen = pygame.display.set_mode((self.w, self.h))
+            # mark the moment image finished loading to optionally draw secret element
+            self.just_loaded_at = pygame.time.get_ticks()
         self.screen.blit(self.image_surface, (0, 0))
 
         # HUD
-        hud_bg = pygame.Surface((SCREEN_W, 44), pygame.SRCALPHA)
+        hud_bg = pygame.Surface((self.w, 44), pygame.SRCALPHA)
         hud_bg.fill((0, 0, 0, 150))
         self.screen.blit(hud_bg, (0, 0))
         info = self.font.render(
@@ -201,12 +229,25 @@ class Game:
         )
         self.screen.blit(info, (10, 10))
 
+        # Draw secret element (target indicator) briefly after load, or always if DEBUG_SHOW_TARGET is set
+        show_marker = False
+        if self.debug_show_target:
+            show_marker = True
+        elif self.just_loaded_at is not None:
+            if pygame.time.get_ticks() - self.just_loaded_at <= 400:
+                show_marker = True
+        if show_marker:
+            # subtle, semi-transparent indicator at the mapped coordinates
+            color = (255, 255, 255)
+            pygame.draw.circle(self.screen, color, self.target, 8, 2)
+            pygame.draw.circle(self.screen, color, self.target, max(2, self.tolerance // 3), 1)
+
         # Optional: draw a faint bounding box around tolerance when debugging
         # pygame.draw.rect(self.screen, (255,255,255), pygame.Rect(self.target[0]-self.tolerance, self.target[1]-self.tolerance, self.tolerance*2, self.tolerance*2), 1)
 
     def draw_result(self, success: bool):
         self.draw_play()  # show image underneath
-        overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        overlay = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 160))
         self.screen.blit(overlay, (0, 0))
 
@@ -214,7 +255,7 @@ class Game:
         color = SUCCESS_COLOR if success else FAIL_COLOR
         label = self.big_font.render(msg, True, color)
         self.screen.blit(
-            label, label.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 - 40))
+            label, label.get_rect(center=(self.w // 2, self.h // 2 - 40))
         )
 
         # Draw the target location marker
@@ -296,7 +337,7 @@ class Game:
             self.screen.blit(l2, (50, 98))
 
             # input box
-            box = pygame.Rect(50, 140, SCREEN_W - 100, 40)
+            box = pygame.Rect(50, 140, self.w - 100, 40)
             pygame.draw.rect(self.screen, (70, 70, 80), box, border_radius=6)
             txt_surface = self.font.render(user_text or "", True, (0, 0, 0))
             self.screen.blit(txt_surface, (box.x + 8, box.y + 10))
@@ -307,14 +348,43 @@ class Game:
 
     def new_round(self):
         self.round_seed = random.randint(0, 2**31 - 1)
-        self.target = gen_coords()
         # Generate prompt JSON
         prompt_json = try_generate_prompt(seed=self.round_seed)
-        # Generate image via nano_banana
+        # Generate coordinates in the base 768x1344 space to remain consistent with prompts
+        legacy_x, legacy_y = gen_coords(BASE_W, BASE_H)
+        self.target = (legacy_x, legacy_y)
+        print(f"[Round] seed={self.round_seed} | base_coords(768x1344)=({legacy_x}, {legacy_y})")
+        # Generate image via nano_banana using legacy coordinates
         self.image_path = try_generate_image(
             prompt_json, self.target, self.custom_image_path
         )
-        self.image_surface = None
+        self.image_surface = None  # force reload and window resize in draw_play
+        # After image exists, load to detect size and map target proportionally to image size (rescaled to BASE)
+        self.just_loaded_at = None  # will be set on first draw after load
+        if self.image_path and os.path.exists(self.image_path):
+            # Measure original size from disk
+            try:
+                raw = pygame.image.load(self.image_path)
+                ow, oh = raw.get_width(), raw.get_height()
+                del raw
+            except Exception:
+                ow, oh = -1, -1
+            temp_surface = load_image_surface(self.image_path)  # may rescale to BASE
+            iw, ih = temp_surface.get_width(), temp_surface.get_height()
+            # Proportionally map from 768x1344 to iw x ih (will be identical if iw,ih == BASE)
+            sx = iw / float(BASE_W)
+            sy = ih / float(BASE_H)
+            new_x = int(legacy_x * sx)
+            new_y = int(legacy_y * sy)
+            # Clamp into bounds just in case
+            new_x = clamp(new_x, 0, max(0, iw - 1))
+            new_y = clamp(new_y, 0, max(0, ih - 1))
+            self.target = (new_x, new_y)
+            print(f"[Round] image_original_size=({ow}x{oh}), play_surface_size=({iw}x{ih}), final_target=({new_x}, {new_y})")
+        else:
+            # fallback to default window size mapping
+            self.target = gen_coords(self.w, self.h)
+            print(f"[Round] image generation failed; fallback target=({self.target[0]}, {self.target[1]}) on window {self.w}x{self.h}")
 
     def handle_click(self, pos):
         px, py = pos
