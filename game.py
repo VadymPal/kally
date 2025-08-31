@@ -48,9 +48,9 @@ def try_generate_prompt(seed: Optional[int] = None) -> Optional[dict]:
 
 def try_generate_image(
     prompt_json: Optional[dict], coords: Tuple[int, int], custom_image: Optional[str]
-) -> Optional[str]:
+) -> Tuple[Optional[str], Optional[ImageGenerator]]:
     if ImageGenerator is None:
-        return None
+        return (None, None)
     x, y = coords
     style = prompt_json.get("style") if prompt_json else None
     scenery = prompt_json.get("scenery") if prompt_json else None
@@ -87,7 +87,7 @@ def try_generate_image(
         # If attribute missing, just search for a recent file that matches ENTER_FILE_NAME_X.png
         image_path = getattr(ig, "_current_level_image", None)
         if image_path and os.path.exists(image_path):
-            return image_path
+            return (image_path, ig)
         # Fallback: try to find the newest ENTER_FILE_NAME_* file
         candidates = [
             os.path.join(os.getcwd(), f)
@@ -96,11 +96,11 @@ def try_generate_image(
         ]
         if candidates:
             candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-            return candidates[0]
+            return (candidates[0], ig)
     except Exception:
         traceback.print_exc()
-        return None
-    return None
+        return (None, None)
+    return (None, None)
 
 
 def load_image_surface(path: Optional[str]) -> pygame.Surface:
@@ -164,6 +164,10 @@ class Game:
         self.btn_select = Button(pygame.Rect(50, 50, 200, 44), "Select Image…")
         self.btn_start = Button(pygame.Rect(50, 110, 200, 44), "Start Game")
         self.btn_new_round = Button(pygame.Rect(50, 50, 200, 44), "New Round")
+        self.btn_easier = Button(pygame.Rect(270, 50, 160, 44), "Easier")
+        self.btn_harder = Button(pygame.Rect(440, 50, 160, 44), "Harder")
+        self.image_generator: Optional[ImageGenerator] = None
+        self.prompt_json_cache: Optional[dict] = None
 
         # Game state
         self.target: Tuple[int, int] = (0, 0)
@@ -266,6 +270,10 @@ class Game:
         self.btn_new_round.draw(
             self.screen, self.font, self.btn_new_round.is_hover(mouse)
         )
+        # Show difficulty adjusters
+        right_y = 50
+        self.btn_easier.draw(self.screen, self.font, self.btn_easier.is_hover(mouse))
+        self.btn_harder.draw(self.screen, self.font, self.btn_harder.is_hover(mouse))
 
     def pick_file_dialog(self) -> Optional[str]:
         # Avoid Tk on macOS due to known crash with SDL/Pygame (NSInvalidArgumentException macOSVersion).
@@ -355,7 +363,8 @@ class Game:
         self.target = (legacy_x, legacy_y)
         print(f"[Round] seed={self.round_seed} | base_coords(768x1344)=({legacy_x}, {legacy_y})")
         # Generate image via nano_banana using legacy coordinates
-        self.image_path = try_generate_image(
+        self.prompt_json_cache = prompt_json
+        self.image_path, self.image_generator = try_generate_image(
             prompt_json, self.target, self.custom_image_path
         )
         self.image_surface = None  # force reload and window resize in draw_play
@@ -399,6 +408,42 @@ class Game:
             self.tolerance = min(200, int(self.tolerance * 1.25) + 1)
         self.state = "result"
 
+    def _update_image_from_generator(self):
+        # Try to read the latest generated file from the ImageGenerator instance
+        if self.image_generator is None:
+            return
+        img_path = getattr(self.image_generator, "_current_level_image", None)
+        if img_path and os.path.exists(img_path):
+            self.image_path = img_path
+
+    def adjust_level(self, easier: bool):
+        if self.image_generator is None:
+            return
+        # Pick new coordinates in base space (768x1344)
+        new_x, new_y = gen_coords(BASE_W, BASE_H)
+        try:
+            if easier:
+                print(f"[Adjust] make_easier to=({new_x}, {new_y})")
+                self.image_generator.make_easier(new_x, new_y)
+                # Also adjust in-game tolerance a bit to be easier
+                self.tolerance = min(200, int(self.tolerance * 1.25) + 1)
+            else:
+                print(f"[Adjust] make_harder to=({new_x}, {new_y})")
+                self.image_generator.make_harder(new_x, new_y)
+                # Adjust in-game tolerance to be harder
+                self.tolerance = max(5, int(self.tolerance * 0.8))
+            # After generation, update the image path from generator
+            self._update_image_from_generator()
+            # Since our display surface is scaled to BASE, mapped coords equal base coords
+            self.target = (new_x, new_y)
+            # Force reload
+            self.image_surface = None
+            self.just_loaded_at = None
+            # Return to play to see the updated image
+            self.state = "play"
+        except Exception:
+            traceback.print_exc()
+
     def run(self):
         running = True
         while running:
@@ -441,6 +486,10 @@ class Game:
                                 self.image_path = None
                                 self.image_surface = None
                                 self.state = "play"
+                        elif self.btn_easier.is_hover(mouse):
+                            self.adjust_level(easier=True)
+                        elif self.btn_harder.is_hover(mouse):
+                            self.adjust_level(easier=False)
 
             if self.state == "menu":
                 self.draw_menu()
