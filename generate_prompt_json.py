@@ -83,9 +83,7 @@ SCENERY_TEMPLATES = [
     "A cliffside temple at sunset, bells tolling softly as pilgrims ascend wide stone steps.",
 ]
 
-OPENROUTER_API_KEY = (
-    "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"
-)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
 def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, str]]:

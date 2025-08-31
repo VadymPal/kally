@@ -1,13 +1,10 @@
-GOOGLE_API_KEY = "AIzaSyAR-uyYht-ciECuvNdeTrYWZsL-LaS9zBM"
-OPENROUTER_API_KEY = (
-    "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"
-)
-
 import base64
 import mimetypes
 import os
 from google import genai
 from google.genai import types
+
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 
 class ImageGenerator:
