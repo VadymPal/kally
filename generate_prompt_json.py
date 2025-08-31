@@ -113,13 +113,15 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
 
     # Give the model some randomized candidates to steer variety while keeping format strict.
     candidate_styles = ", ".join(random.sample(STYLES, k=min(6, len(STYLES))))
-    candidate_worlds = ", ".join(random.sample(WORLD_SETTINGS, k=min(6, len(WORLD_SETTINGS))))
+    candidate_worlds = ", ".join(
+        random.sample(WORLD_SETTINGS, k=min(6, len(WORLD_SETTINGS)))
+    )
 
     user_prompt = (
         "Randomly choose one style from: "
         f"[{candidate_styles}] and one world_settings from: [{candidate_worlds}]. "
         "Invent a vivid one-sentence scenery description that fits both. "
-        "Output strictly: {\"style\": \"...\", \"scenery\": \"...\", \"world_settings\": \"...\"}."
+        'Output strictly: {"style": "...", "scenery": "...", "world_settings": "..."}.'
     )
 
     headers = {
@@ -144,16 +146,25 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
         body["seed"] = int(seed)
 
     try:
-        resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, data=json.dumps(body), timeout=30)
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            data=json.dumps(body),
+            timeout=30,
+        )
         resp.raise_for_status()
         data = resp.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        content = (
+            data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        )
         if not content:
             return None
         # Ensure strict JSON; if the model returned code fences, strip them
         if content.startswith("```") and content.endswith("```"):
             # Remove code fences commonly used by some models
-            lines = [ln for ln in content.splitlines() if not ln.strip().startswith("```")]
+            lines = [
+                ln for ln in content.splitlines() if not ln.strip().startswith("```")
+            ]
             content = "\n".join(lines).strip()
         parsed = json.loads(content)
         # Validate keys exist and are strings
@@ -168,11 +179,25 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate JSON prompts using OpenRouter or local randomness.")
-    parser.add_argument("--no-api", action="store_true", help="Do not call OpenRouter, use local generation only.")
-    parser.add_argument("--model", default=os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"), help="OpenRouter model name.")
-    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
-    parser.add_argument("--out", default=None, help="Optional output file to save the JSON.")
+    parser = argparse.ArgumentParser(
+        description="Generate JSON prompts using OpenRouter or local randomness."
+    )
+    parser.add_argument(
+        "--no-api",
+        action="store_true",
+        help="Do not call OpenRouter, use local generation only.",
+    )
+    parser.add_argument(
+        "--model",
+        default=os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"),
+        help="OpenRouter model name.",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducibility."
+    )
+    parser.add_argument(
+        "--out", default=None, help="Optional output file to save the JSON."
+    )
     args = parser.parse_args()
 
     rng = random.Random(args.seed)
@@ -204,7 +229,15 @@ def main():
         sys.stderr.write("[info] OpenRouter API used successfully\n")
     else:
         api_present = bool(os.getenv("OPENROUTER_API_KEY"))
-        sys.stderr.write("[info] Local generation used" + (" (API key present but call failed)" if api_present and not args.no_api else "") + "\n")
+        sys.stderr.write(
+            "[info] Local generation used"
+            + (
+                " (API key present but call failed)"
+                if api_present and not args.no_api
+                else ""
+            )
+            + "\n"
+        )
 
 
 if __name__ == "__main__":
