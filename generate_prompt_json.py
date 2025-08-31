@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a JSON payload for image/game generation using OpenRouter (optional) or local randomness.
+Generate a JSON payload for image/game generation using OpenRouter.
 
 Output JSON shape:
 {
@@ -10,14 +10,14 @@ Output JSON shape:
 }
 
 Usage:
-  python generate_prompt_json.py [--no-api] [--model MODEL] [--seed N] [--out FILE]
+  python generate_prompt_json.py [--model MODEL] [--seed N] [--out FILE]
 
 Environment:
-  OPENROUTER_API_KEY  Required if using OpenRouter (default mode). Use --no-api to skip.
+  OPENROUTER_API_KEY  Required.
   OPENROUTER_MODEL    Optional default model name (overridden by --model). Example: "meta-llama/llama-3.1-8b-instruct".
 
 Notes:
-- The script will try to get a structured JSON from OpenRouter. If the API key is missing, the call fails, or parsing fails, it will fall back to a robust local random generator.
+- This script always uses OpenRouter and will error if no API key is configured.
 - Minimal addition to repo: this single file; existing code remains untouched.
 """
 
@@ -83,20 +83,13 @@ SCENERY_TEMPLATES = [
     "A cliffside temple at sunset, bells tolling softly as pilgrims ascend wide stone steps.",
 ]
 
-
-def _local_generate(rng: random.Random) -> Dict[str, str]:
-    style = rng.choice(STYLES)
-    world = rng.choice(WORLD_SETTINGS)
-    scenery = rng.choice(SCENERY_TEMPLATES)
-    return {
-        "style": style,
-        "scenery": scenery,
-        "world_settings": world,
-    }
+OPENROUTER_API_KEY = (
+    "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"
+)
 
 
 def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, str]]:
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key = OPENROUTER_API_KEY
     if not api_key:
         return None
     if requests is None:
@@ -178,67 +171,31 @@ def _openrouter_generate(model: str, seed: Optional[int]) -> Optional[Dict[str, 
         return None
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate JSON prompts using OpenRouter or local randomness."
-    )
-    parser.add_argument(
-        "--no-api",
-        action="store_true",
-        help="Do not call OpenRouter, use local generation only.",
-    )
-    parser.add_argument(
-        "--model",
-        default=os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"),
-        help="OpenRouter model name.",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=None, help="Random seed for reproducibility."
-    )
-    parser.add_argument(
-        "--out", default=None, help="Optional output file to save the JSON."
-    )
-    args = parser.parse_args()
+def generate_prompt(
+    model: Optional[str] = None,
+    seed: Optional[int] = None,
+) -> Dict[str, str]:
+    """
+    Programmatic API to generate a prompt JSON.
 
-    rng = random.Random(args.seed)
+    Parameters:
+    - model: OpenRouter model name. If None, uses env OPENROUTER_MODEL or default.
+    - seed: Optional integer seed for determinism (passed to API when supported).
 
-    result: Optional[Dict[str, str]] = None
-    used_api = False
+    Returns:
+    - Dict with keys: style, scenery, world_settings.
 
-    if not args.no_api:
-        result = _openrouter_generate(args.model, args.seed)
-        used_api = result is not None
+    Example:
+        from generate_prompt_json import generate_prompt
+        data = generate_prompt(seed=42)
+        # data -> {"style": "...", "scenery": "...", "world_settings": "..."}
+    """
+    if model is None:
+        model = os.getenv("OPENROUTER_MODEL", "openrouter/auto")
 
+    result: Optional[Dict[str, str]] = _openrouter_generate(model, seed)
     if result is None:
-        result = _local_generate(rng)
-
-    # Print JSON to stdout
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-
-    # Optionally write to file
-    if args.out:
-        try:
-            with open(args.out, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Failed to write output file: {e}", file=sys.stderr)
-            sys.exit(2)
-
-    # Exit code 0, but echo mode for clarity to user if running directly
-    if used_api:
-        sys.stderr.write("[info] OpenRouter API used successfully\n")
-    else:
-        api_present = bool(os.getenv("OPENROUTER_API_KEY"))
-        sys.stderr.write(
-            "[info] Local generation used"
-            + (
-                " (API key present but call failed)"
-                if api_present and not args.no_api
-                else ""
-            )
-            + "\n"
+        raise RuntimeError(
+            "OpenRouter generation failed or returned invalid response. Ensure OPENROUTER_API_KEY and model are set."
         )
-
-
-if __name__ == "__main__":
-    main()
+    return result
