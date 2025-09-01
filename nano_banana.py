@@ -21,6 +21,14 @@ class ImageGenerator:
     \"color_palette\": \"{color_palette}\"
     """
 
+    FACE_LOCATE_PROMPT = (
+        "You are given two images: (A) the final generated crowded scene, and (B) the reference face image. "
+        "Find the most likely location in image (A) where the face from (B) appears. "
+        "Return STRICT JSON with pixel coordinates relative to a 768x1344 canvas (width x height). "
+        "Use this exact shape: {\"center\": {\"x\": 123, \"y\": 456}}. "
+        "Only output JSON. No extra text. If uncertain, still provide best estimate."
+    )
+
     HARDER_LEVEL = """Rework the given image. Keep the following parameters:
 style: {style_prompt}
 scenery: {scenery}
@@ -200,6 +208,56 @@ Add fewer details, make the provided face slightly larger while ensuring it is w
                 return f"{file_name}{file_extension}"
             else:
                 print(chunk.text)
+
+    def detect_face_center(self, generated_image_path: str, reference_image_path: str) -> tuple[int, int] | None:
+        """
+        Ask the model to locate the reference face within the generated image and return center (x, y) in 768x1344 space.
+        Returns None if detection fails.
+        """
+        try:
+            parts = []
+            # Order: explain task, attach images, ask for JSON only
+            parts.append(types.Part.from_text(text=self.FACE_LOCATE_PROMPT))
+            import mimetypes as _mt
+            with open(generated_image_path, "rb") as gen_f:
+                g_mime = _mt.guess_type(generated_image_path)[0] or "image/png"
+                parts.append(
+                    types.Part.from_bytes(
+                        mime_type=g_mime,
+                        data=gen_f.read(),
+                    )
+                )
+            with open(reference_image_path, "rb") as ref_f:
+                r_mime = _mt.guess_type(reference_image_path)[0] or "image/png"
+                parts.append(
+                    types.Part.from_bytes(
+                        mime_type=r_mime,
+                        data=ref_f.read(),
+                    )
+                )
+
+            contents = [types.Content(role="user", parts=parts)]
+            # Use a text-capable model for analysis
+            model = "gemini-1.5-flash"
+            cfg = types.GenerateContentConfig(response_modalities=["TEXT"], temperature=0.1)
+            resp = self.client.models.generate_content(model=model, contents=contents, config=cfg)
+            text = (resp.text or "").strip()
+            # Extract JSON block if there is any stray text
+            import json, re
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                text = match.group(0)
+            data = json.loads(text)
+            c = data.get("center") or {}
+            x = int(c.get("x"))
+            y = int(c.get("y"))
+            # Clamp to base canvas
+            x = max(0, min(767, x))
+            y = max(0, min(1343, y))
+            return (x, y)
+        except Exception as e:
+            print("[detect_face_center] failed:", e)
+            return None
 
 
 # if __name__ == "__main__":

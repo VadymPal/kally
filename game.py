@@ -368,28 +368,39 @@ class Game:
             prompt_json, self.target, self.custom_image_path
         )
         self.image_surface = None  # force reload and window resize in draw_play
-        # After image exists, load to detect size and map target proportionally to image size (rescaled to BASE)
+        # After image exists, attempt face localization to determine actual coordinates
         self.just_loaded_at = None  # will be set on first draw after load
         if self.image_path and os.path.exists(self.image_path):
-            # Measure original size from disk
-            try:
-                raw = pygame.image.load(self.image_path)
-                ow, oh = raw.get_width(), raw.get_height()
-                del raw
-            except Exception:
-                ow, oh = -1, -1
-            temp_surface = load_image_surface(self.image_path)  # may rescale to BASE
-            iw, ih = temp_surface.get_width(), temp_surface.get_height()
-            # Proportionally map from 768x1344 to iw x ih (will be identical if iw,ih == BASE)
-            sx = iw / float(BASE_W)
-            sy = ih / float(BASE_H)
-            new_x = int(legacy_x * sx)
-            new_y = int(legacy_y * sy)
-            # Clamp into bounds just in case
-            new_x = clamp(new_x, 0, max(0, iw - 1))
-            new_y = clamp(new_y, 0, max(0, ih - 1))
-            self.target = (new_x, new_y)
-            print(f"[Round] image_original_size=({ow}x{oh}), play_surface_size=({iw}x{ih}), final_target=({new_x}, {new_y})")
+            detected = None
+            if self.image_generator and self.custom_image_path and os.path.exists(self.custom_image_path):
+                try:
+                    detected = self.image_generator.detect_face_center(self.image_path, self.custom_image_path)
+                except Exception:
+                    traceback.print_exc()
+                    detected = None
+            if detected:
+                dx, dy = detected
+                # Since display surface is scaled to BASE (768x1344) in load_image_surface, dx,dy are already in that space
+                self.target = (dx, dy)
+                print(f"[Round] face center detected at BASE coords=({dx}, {dy})")
+            else:
+                # Legacy proportional mapping fallback
+                try:
+                    raw = pygame.image.load(self.image_path)
+                    ow, oh = raw.get_width(), raw.get_height()
+                    del raw
+                except Exception:
+                    ow, oh = -1, -1
+                temp_surface = load_image_surface(self.image_path)  # may rescale to BASE
+                iw, ih = temp_surface.get_width(), temp_surface.get_height()
+                sx = iw / float(BASE_W)
+                sy = ih / float(BASE_H)
+                new_x = int(legacy_x * sx)
+                new_y = int(legacy_y * sy)
+                new_x = clamp(new_x, 0, max(0, iw - 1))
+                new_y = clamp(new_y, 0, max(0, ih - 1))
+                self.target = (new_x, new_y)
+                print(f"[Round] fallback mapping image_original_size=({ow}x{oh}), play_surface_size=({iw}x{ih}), final_target=({new_x}, {new_y})")
         else:
             # fallback to default window size mapping
             self.target = gen_coords(self.w, self.h)
@@ -434,8 +445,20 @@ class Game:
                 self.tolerance = max(5, int(self.tolerance * 0.8))
             # After generation, update the image path from generator
             self._update_image_from_generator()
-            # Since our display surface is scaled to BASE, mapped coords equal base coords
-            self.target = (new_x, new_y)
+            # Try to detect actual location after rework if possible
+            detected = None
+            if self.image_generator and self.custom_image_path and self.image_path and os.path.exists(self.image_path) and os.path.exists(self.custom_image_path):
+                try:
+                    detected = self.image_generator.detect_face_center(self.image_path, self.custom_image_path)
+                except Exception:
+                    traceback.print_exc()
+                    detected = None
+            if detected:
+                self.target = detected
+                print(f"[Adjust] face center detected at BASE coords={detected}")
+            else:
+                # Fallback: assume the requested new coords
+                self.target = (new_x, new_y)
             # Force reload
             self.image_surface = None
             self.just_loaded_at = None
